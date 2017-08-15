@@ -2,9 +2,9 @@ package cmap_string_socket
 
 import (
 	"encoding/json"
+	"github.com/azhao1981/go-socket.io"
 	"hash/fnv"
 	"sync"
-	"github.com/googollee/go-socket.io"
 )
 
 var SHARD_COUNT = 32

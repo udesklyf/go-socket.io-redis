@@ -2,9 +2,9 @@ package cmap_string_cmap
 
 import (
 	"encoding/json"
+	"github.com/azhao1981/go-socket.io-redis/cmap_string_socket"
 	"hash/fnv"
 	"sync"
-	"github.com/satyakb/go-socket.io-redis/cmap_string_socket"
 )
 
 var SHARD_COUNT = 32
