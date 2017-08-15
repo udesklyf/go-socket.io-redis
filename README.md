@@ -28,7 +28,10 @@ func main() {
         log.Fatal(err)
     }
 
-    opts := make[map[string]string]
+    opts := make(map[string]string)
+    opts["host"] = "localhost"
+    opts["port"] = "6379"
+    opts["prefix"] = "socket.io"
     server.SetAdaptor(redis.Redis(opts))
 
     server.On("connection", func(so socketio.Socket) {
