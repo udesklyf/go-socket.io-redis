@@ -162,19 +162,19 @@ func (b broadcast) Leave(room string, socket socketio.Socket) error {
 
 // Same as Broadcast
 func (b broadcast) Send(ignore socketio.Socket, room, message string, args ...interface{}) error {
+	// log.Printf("broadcast Send start %v , %v, %v ", room, message, b.remote)
 	sockets, ok := b.rooms.Get(room)
-	if !ok {
-		return nil
-	}
-	for item := range sockets.Iter() {
-		id := item.Key
-		s := item.Val
-		if ignore != nil && ignore.Id() == id {
-			continue
-		}
-		err := (s.Emit(message, args...))
-		if err != nil {
-			log.Println("error broadcasting:", err)
+	if ok {
+		for item := range sockets.Iter() {
+			id := item.Key
+			s := item.Val
+			if ignore != nil && ignore.Id() == id {
+				continue
+			}
+			err := (s.Emit(message, args...))
+			if err != nil {
+				log.Println("error broadcasting:", err)
+			}
 		}
 	}
 
@@ -190,6 +190,7 @@ func (b broadcast) Send(ignore socketio.Socket, room, message string, args ...in
 	buf, err := json.Marshal(in)
 	_ = err
 
+	// log.Printf("broadcast Send Pushlist %v , %v, %v ", b.remote, b.key, buf)
 	if !b.remote {
 		b.pub.Conn.Do("PUBLISH", b.key, buf)
 	}
