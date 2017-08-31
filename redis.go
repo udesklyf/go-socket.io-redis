@@ -8,20 +8,31 @@ import (
 	"github.com/nu7hatch/gouuid"
 	"log"
 	"strings"
+	"time"
 	// "github.com/vmihailenco/msgpack"  // screwed up types after decoding
 	"encoding/json"
 )
 
 type broadcast struct {
-	host   string
-	port   string
-	pub    redis.PubSubConn
-	sub    redis.PubSubConn
-	prefix string
-	uid    string
-	key    string
-	remote bool
-	rooms  cmap_string_cmap.ConcurrentMap
+	host    string
+	port    string
+	pub     redis.PubSubConn
+	pubpool *redis.Pool
+	sub     redis.PubSubConn
+	prefix  string
+	uid     string
+	key     string
+	remote  bool
+	rooms   cmap_string_cmap.ConcurrentMap
+}
+
+func newPool(addr string) *redis.Pool {
+	return &redis.Pool{
+		MaxActive:   500,
+		MaxIdle:     3,
+		IdleTimeout: 240 * time.Second,
+		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", addr) },
+	}
 }
 
 //
@@ -53,6 +64,9 @@ func Redis(opts map[string]string) socketio.BroadcastAdaptor {
 	if err != nil {
 		panic(err)
 	}
+
+	b.pubpool = newPool(b.host + ":" + b.port)
+
 	sub, err := redis.Dial("tcp", b.host+":"+b.port)
 	if err != nil {
 		panic(err)
@@ -79,12 +93,12 @@ func Redis(opts map[string]string) socketio.BroadcastAdaptor {
 		for {
 			switch n := b.sub.Receive().(type) {
 			case redis.Message:
-				log.Printf("Message: %s %s\n", n.Channel, n.Data)
+				// log.Printf("Message: %s %s\n", n.Channel, n.Data)
 			case redis.PMessage:
 				b.onmessage(n.Channel, n.Data)
-				log.Printf("PMessage: %s %s %s\n", n.Pattern, n.Channel, n.Data)
+				// log.Printf("PMessage: %s %s %s\n", n.Pattern, n.Channel, n.Data)
 			case redis.Subscription:
-				log.Printf("Subscription: %s %s %d\n", n.Kind, n.Channel, n.Count)
+				// log.Printf("Subscription: %s %s %d\n", n.Kind, n.Channel, n.Count)
 				if n.Count == 0 {
 					return
 				}
@@ -190,9 +204,11 @@ func (b broadcast) Send(ignore socketio.Socket, room, message string, args ...in
 	buf, err := json.Marshal(in)
 	_ = err
 
-	// log.Printf("broadcast Send Pushlist %v , %v, %v ", b.remote, b.key, buf)
 	if !b.remote {
-		b.pub.Conn.Do("PUBLISH", b.key, buf)
+		// log.Printf("broadcast Send Pushlist %v , %v, %v ", b.remote, b.key, buf)
+		conn := b.pubpool.Get()
+		defer conn.Close()
+		conn.Do("PUBLISH", b.key, buf)
 	}
 	b.remote = false
 	return nil
