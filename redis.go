@@ -116,7 +116,8 @@ func (b broadcast) onmessage(channel string, data []byte) error {
 	pieces := strings.Split(channel, "#")
 	uid := pieces[len(pieces)-1]
 	if b.uid == uid {
-		log.Println("ignore same uid")
+		// 这里是收到自己发出的消息
+		// log.Println("ignore same uid")
 		return nil
 	}
 
@@ -131,7 +132,8 @@ func (b broadcast) onmessage(channel string, data []byte) error {
 	opts := out["opts"]
 	ignore, ok := opts[0].(socketio.Socket)
 	if !ok {
-		log.Println("ignore is not a socket")
+		// 这里是收到别人发出的消息
+		// log.Println("ignore is not a socket")
 		ignore = nil
 	}
 	room, ok := opts[1].(string)
