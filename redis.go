@@ -4,11 +4,13 @@ import (
 	"github.com/azhao1981/go-socket.io"
 	"github.com/azhao1981/go-socket.io-redis/cmap_string_cmap"
 	"github.com/azhao1981/go-socket.io-redis/cmap_string_socket"
+	"github.com/FZambia/go-sentinel"
 	"github.com/garyburd/redigo/redis"
 	"github.com/nu7hatch/gouuid"
 	"log"
 	"strings"
 	"time"
+	"errors"
 	// "github.com/vmihailenco/msgpack"  // screwed up types after decoding
 	"encoding/json"
 )
@@ -26,12 +28,31 @@ type broadcast struct {
 	rooms   cmap_string_cmap.ConcurrentMap
 }
 
-func newPool(addr string) *redis.Pool {
+func newPool(master_addr string, redis_password string) *redis.Pool {
 	return &redis.Pool{
-		MaxActive:   500,
 		MaxIdle:     3,
+		MaxActive:   500,
 		IdleTimeout: 240 * time.Second,
-		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", addr) },
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", master_addr)
+			if err != nil {
+				panic(err)
+			}
+
+			if _, err := c.Do("AUTH", redis_password); err != nil {
+				c.Close()
+				return nil, err
+			}
+
+			return c, nil
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if !sentinel.TestRole(c, "master") {
+				return errors.New("Role check failed")
+			} else {
+				return nil
+			}
+		},
 	}
 }
 
@@ -41,36 +62,83 @@ func newPool(addr string) *redis.Pool {
 //   "port": "6379"
 //   "prefix": "socket.io"
 // }
-func Redis(opts map[string]string) socketio.BroadcastAdaptor {
+func Redis(opts map[string]string, sentinel_infos []string, sentinel_password string) socketio.BroadcastAdaptor {
 	b := broadcast{
 		rooms: cmap_string_cmap.New(),
 	}
 
-	var ok bool
-	b.host, ok = opts["host"]
-	if !ok {
+	sntnl := &sentinel.Sentinel{
+		Addrs: sentinel_infos,
+		MasterName: "mymaster",
+		Dial: func(addr string) (redis.Conn, error) {
+			timeout := 500 * time.Millisecond
+			c, err := redis.DialTimeout("tcp", addr, timeout, timeout, timeout)
+			if err != nil {
+				panic(err)
+			}
+
+      if sentinel_password != "" {
+        if _, err := c.Do("AUTH", sentinel_password); err != nil {
+          c.Close()
+          return nil, err
+        }
+      }
+
+			return c, nil
+		},
+	}
+
+	master_addr, err := sntnl.MasterAddr()
+	if err != nil {
+		panic(err)
+	}
+
+	master_addr_host := strings.Split(master_addr, ":")[0]
+	master_addr_port := strings.Split(master_addr, ":")[1]
+
+	if master_addr_host != "" {
+		b.host = master_addr_host
+	} else {
 		b.host = "127.0.0.1"
 	}
-	b.port, ok = opts["port"]
-	if !ok {
+
+	if master_addr_port != "" {
+		b.port = master_addr_port
+	} else {
 		b.port = "6379"
 	}
+
+	var ok bool
 	b.prefix, ok = opts["prefix"]
 	if !ok {
 		b.prefix = "socket.io"
 	}
 
-	pub, err := redis.Dial("tcp", b.host+":"+b.port)
+	pub, err := redis.Dial("tcp", b.host + ":" + b.port)
+	if err != nil {
+		panic(err)
+	}
+  if opts["password"] != "" {
+    if _, err := pub.Do("AUTH", opts["password"]); err != nil {
+      pub.Close()
+      panic(err)
+    }
+  }
+
+
+	b.pubpool = newPool(b.host + ":" + b.port, opts["password"])
+
+	sub, err := redis.Dial("tcp", b.host + ":" + b.port)
 	if err != nil {
 		panic(err)
 	}
 
-	b.pubpool = newPool(b.host + ":" + b.port)
-
-	sub, err := redis.Dial("tcp", b.host+":"+b.port)
-	if err != nil {
-		panic(err)
-	}
+  if opts["password"] != "" {
+    if _, err := sub.Do("AUTH", opts["password"]); err != nil {
+      sub.Close()
+      panic(err)
+    }
+  }
 
 	b.pub = redis.PubSubConn{Conn: pub}
 	b.sub = redis.PubSubConn{Conn: sub}
