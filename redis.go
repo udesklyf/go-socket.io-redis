@@ -26,12 +26,26 @@ type broadcast struct {
 	rooms   cmap_string_cmap.ConcurrentMap
 }
 
-func newPool(addr string) *redis.Pool {
+func newPool(addr string, password string) *redis.Pool {
 	return &redis.Pool{
 		MaxActive:   500,
 		MaxIdle:     3,
 		IdleTimeout: 240 * time.Second,
-		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", addr) },
+		Dial:        func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", addr)
+			if err != nil {
+				panic(err)
+			}
+
+			if password != "" {
+				if _, err := c.Do("AUTH", password); err != nil {
+					c.Close()
+					panic(err)
+				}
+			}
+
+			return c, nil
+		},
 	}
 }
 
@@ -65,11 +79,25 @@ func Redis(opts map[string]string) socketio.BroadcastAdaptor {
 		panic(err)
 	}
 
-	b.pubpool = newPool(b.host + ":" + b.port)
+	if opts["password"] != "" {
+		if _, err := pub.Do("AUTH", opts["password"]); err != nil {
+			pub.Close()
+			panic(err)
+		}
+	}
+
+	b.pubpool = newPool(b.host + ":" + b.port, opts["password"])
 
 	sub, err := redis.Dial("tcp", b.host+":"+b.port)
 	if err != nil {
 		panic(err)
+	}
+
+	if opts["password"] != "" {
+		if _, err := sub.Do("AUTH", opts["password"]); err != nil {
+			sub.Close()
+			panic(err)
+		}
 	}
 
 	b.pub = redis.PubSubConn{Conn: pub}
