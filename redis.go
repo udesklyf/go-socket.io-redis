@@ -69,7 +69,7 @@ func Redis(opts map[string]string, sentinel_infos []string, sentinel_password st
 
 	sntnl := &sentinel.Sentinel{
 		Addrs: sentinel_infos,
-		MasterName: "mymaster",
+		MasterName: opts["master_name"],
 		Dial: func(addr string) (redis.Conn, error) {
 			timeout := 500 * time.Millisecond
 			c, err := redis.DialTimeout("tcp", addr, timeout, timeout, timeout)
@@ -88,6 +88,7 @@ func Redis(opts map[string]string, sentinel_infos []string, sentinel_password st
 		},
 	}
 
+	log.Println("asking MasterAddr: ", opts["master_name"])
 	master_addr, err := sntnl.MasterAddr()
 	if err != nil {
 		panic(err)
